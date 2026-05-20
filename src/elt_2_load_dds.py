@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 from db import get_connection
 
+
 def make_hash_key(*values):
     value = "||".join(str(item) for item in values)
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
@@ -50,12 +51,45 @@ def load_hubs(cur, posts, load_date):
     )
 
 
+def load_user_post_link(cur, posts, load_date):
+    rows = []
+
+    for post_id, user_id, title, body, source_system in posts:
+        user_hash_key = make_hash_key("user", user_id)
+        post_hash_key = make_hash_key("post", post_id)
+
+        rows.append(
+            (
+                make_hash_key("user_post", user_id, post_id),
+                user_hash_key,
+                post_hash_key,
+                load_date,
+                source_system,
+            )
+        )
+
+    cur.executemany(
+        """
+        insert into dds.l_user_post(
+            user_post_hash_key,
+            user_hash_key,
+            post_hash_key,
+            load_date,
+            record_source
+        )
+         values (%s, %s, %s, %s, %s)
+         on conflict (user_post_hash_key) do nothing;
+        """, rows,
+    )
+
+
 def load_posts_to_dds(posts):
     load_date = datetime.now(timezone.utc)
 
     with get_connection() as conn:
         with conn.cursor() as cur:
             load_hubs(cur, posts, load_date)
+            load_user_post_link(cur, posts, load_date)
 
 
 def main():
@@ -65,7 +99,7 @@ def main():
         raise RuntimeError("stg.posts is empty")
 
     load_posts_to_dds(posts)
-    print(f"processed {len(posts)} stg rows into dds hubs")
+    print(f"processed {len(posts)} stg rows into dds hubs and link")
 
 
 if __name__ == "__main__":
