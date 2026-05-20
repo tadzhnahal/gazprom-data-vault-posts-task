@@ -70,7 +70,7 @@ def load_user_post_link(cur, posts, load_date):
 
     cur.executemany(
         """
-        insert into dds.l_user_post(
+        insert into dds.l_user_post (
             user_post_hash_key,
             user_hash_key,
             post_hash_key,
@@ -83,6 +83,47 @@ def load_user_post_link(cur, posts, load_date):
     )
 
 
+def load_post_details(cur, posts, load_date):
+    rows = []
+
+    for post_id, user_id, title, body, source_system in posts:
+        post_hash_key = make_hash_key("post", post_id)
+        hash_diff = make_hash_key(title, body)
+
+        rows.append(
+            (
+                post_hash_key,
+                load_date,
+                title,
+                body,
+                hash_diff,
+                source_system,
+                post_hash_key,
+                hash_diff,
+            )
+        )
+
+    cur.executemany(
+        """
+        insert into dds.s_post_details (
+            post_hash_key,
+            load_date,
+            title,
+            body,
+            hash_diff,
+            record_source
+        )
+        select %s, %s, %s, %s, %s, %s
+        where not exists (
+            select 1
+            from dds.s_post_details
+            where post_hash_key = %s
+            and hash_diff = %s
+        );
+        """, rows,
+    )
+
+
 def load_posts_to_dds(posts):
     load_date = datetime.now(timezone.utc)
 
@@ -90,6 +131,7 @@ def load_posts_to_dds(posts):
         with conn.cursor() as cur:
             load_hubs(cur, posts, load_date)
             load_user_post_link(cur, posts, load_date)
+            load_post_details(cur, posts, load_date)
 
 
 def main():
@@ -99,7 +141,7 @@ def main():
         raise RuntimeError("stg.posts is empty")
 
     load_posts_to_dds(posts)
-    print(f"processed {len(posts)} stg rows into dds hubs and link")
+    print(f"processed {len(posts)} stg rows into dds")
 
 
 if __name__ == "__main__":
